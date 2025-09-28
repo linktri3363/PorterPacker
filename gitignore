@@ -1,0 +1,35 @@
+# PorterPacker .gitignore
+
+# User-specific gear files
+data/
+*.lua.bak
+*.lua.old
+
+# Personal character exports
+*_export_*.lua
+
+# Temporary files
+*.tmp
+*.temp
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Editor files
+*.swp
+*.swo
+*~
+.vscode/
+.idea/
+
+# Logs
+*.log
+
+# Backup files
+*.backup
