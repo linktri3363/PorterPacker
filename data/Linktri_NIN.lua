@@ -1,0 +1,18 @@
+return {
+	"Hattori Zukin +1",
+	"Hiza. Somen +2",
+	"Hiza. Haramaki +2",
+	"Hizamaru Kote +2",
+	"Hiza. Hizayoroi +2",
+	"Hiza. Sune-Ate +2",
+	"Hizamaru Ring",
+	"Mummu Bonnet +2",
+	"Mummu Jacket +2",
+	"Mummu Wrists +2",
+	"Mummu Kecks +2",
+	"Mummu Gamash. +2",
+	"Hattori Ningi +1",
+	"Hattori Tekko +1",
+	"Hattori Hakama +1",
+	"Hattori Kyahan +1",
+}

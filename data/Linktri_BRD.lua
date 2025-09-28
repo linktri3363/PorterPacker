@@ -1,0 +1,17 @@
+return {
+    "Fili Calot +1",
+    "Fili Hongreline +1",
+    "Fili Manchettes +1",
+    "Fili Rhingrave +1",
+    "Fili Cothurnes +1",
+    "Inyanga Tiara +2",
+    "Inyanga Jubbah +2",
+    "Inyan. Dastanas +2",
+    "Inyanga Shalwar +2",
+    "Inyan. Crackows +2",
+    "Aya. Zucchetto +2",
+    "Ayanmo Corazza +2",
+    "Aya. Manopolas +2",
+    "Aya. Cosciales +2",
+    "Aya. Gambieras +2",
+}
