@@ -1,6 +1,6 @@
 _addon.name = 'PorterPacker'
 _addon.author = 'Ivaar'
-_addon.version = '0.0.0.6'
+_addon.version = '0.0.0.8'
 _addon.commands = {'porterpacker','packer','po'}
 
 -- DEBUG MODE: Set to true to enable debug logging, false to disable
@@ -35,8 +35,9 @@ local zones = {
     [250] = 309,    -- Kazham - (H-9)
     [252] = 246,    -- Norg - (G-7)
     [256] = 43,     -- Western Adoulin - (H-11)
-    [280] = 802,    -- Mog Garden
-    [298] = 13,     -- Odyssey Lobby (Walk of Echoes [P1])
+    [280] = 802,    -- Mog Garden	
+	[279] = 13,     -- Odyssey Lobby (alternate zone ID)
+	[298] = 13,     -- Odyssey Lobby (Walk of Echoes [P1])
 }
 
 -- DEBUG: Track all discovered zone/menu combinations (only when debug mode is on)
@@ -121,6 +122,15 @@ local function debug_log(message, ...)
     if DEBUG_MODE then
         notice(message:format(...))
     end
+end
+
+-- Helper function to dump packet bytes for debugging
+local function dump_packet_bytes(data, start_pos, end_pos)
+    local bytes = {}
+    for i = start_pos, end_pos do
+        table.insert(bytes, string.format('%02X', data:byte(i)))
+    end
+    return table.concat(bytes, ' ')
 end
 
 local function trade_npc(npc, items)
@@ -238,11 +248,29 @@ end
 
 local function porter_store(data)
     debug_log('DEBUG: porter_store called')
-    if data:byte(0x0C+1) == 0 then
-        debug_log('DEBUG: porter_store - returning modified data')
-        return data:sub(0x00+1, 0x07+1) .. string.char(1, 0, 0, 0, 1) .. data:sub(0x0D+1)
+    
+    -- Check if byte 0x0D is 0 (confirmation needed)
+    -- Based on debug output, this is the byte that's 0 when confirmation is needed
+    if data:byte(0x0D+1) == 0 then
+        debug_log('DEBUG: porter_store - confirmation dialog detected at 0x0D, will auto-confirm with Enter')
+        
+        -- Automatically send Enter keypress to confirm the storage
+        -- This preserves the game's original messages (showing correct item names and counts)
+        coroutine.schedule(function()
+            coroutine.sleep(0.1)  -- Brief delay to ensure dialog is ready
+            if state == 2 then  -- Still waiting for confirmation
+                debug_log('DEBUG: Sending Enter keypress to auto-confirm storage')
+                windower.send_command('setkey enter down')
+                coroutine.sleep(0.05)
+                windower.send_command('setkey enter up')
+            end
+        end, 0)
+        
+        -- Return the original unmodified data so the game shows correct messages
+        return data
     end
-    debug_log('DEBUG: porter_store - no modification needed')
+    
+    debug_log('DEBUG: porter_store - no confirmation needed (byte 0x0D is not 0)')
     return false
 end
 
