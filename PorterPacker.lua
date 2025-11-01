@@ -257,12 +257,14 @@ local function porter_store(data)
         -- Automatically send Enter keypress to confirm the storage
         -- This preserves the game's original messages (showing correct item names and counts)
         coroutine.schedule(function()
-            coroutine.sleep(0.1)  -- Brief delay to ensure dialog is ready
+            coroutine.sleep(0.2)  -- Increased delay to ensure dialog is fully ready
             if state == 2 then  -- Still waiting for confirmation
                 debug_log('DEBUG: Sending Enter keypress to auto-confirm storage')
                 windower.send_command('setkey enter down')
-                coroutine.sleep(0.05)
+                coroutine.sleep(0.1)  -- Hold enter slightly longer
                 windower.send_command('setkey enter up')
+            else
+                debug_log('DEBUG: State changed before Enter keypress, skipping')
             end
         end, 0)
         
