@@ -1,0 +1,17 @@
+return {
+    "Meghanada Visor +2",
+    "Meg. Cuirie +2",
+    "Meg. Gloves +2",
+    "Meg. Chausses +2",
+    "Meg. Jam. +2",
+    "Mummu Bonnet +2",
+    "Mummu Jacket +2",
+    "Mummu Wrists +2",
+    "Mummu Kecks +2",
+    "Mummu Gamash. +2",
+    "Amini Gapette +3",
+    "Amini Caban +3",
+    "Amini Glove. +3",
+    "Amini Bragues +3",
+    "Amini Bottillons +3",
+}
