@@ -14,4 +14,9 @@ return {
     "Amini Glove. +3",
     "Amini Bragues +3",
     "Amini Bottillons +3",
+	"Orion Beret +1",
+	"Orion Braccae +1",
+	"Orion Bracers +1",
+	"Orion Jerkin +1",
+	"Orion Socks +1",
 }
