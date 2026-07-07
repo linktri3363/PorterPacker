@@ -1,5 +1,5 @@
 _addon.name = 'PorterPacker'
-_addon.author = 'Ivaar'
+_addon.author = 'Ivaar, Linktri'
 _addon.version = '0.0.1.06'
 _addon.commands = {'porterpacker','packer','po'}
 
