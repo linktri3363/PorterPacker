@@ -15,8 +15,8 @@ return {
     "Plun. Culottes +4",
     "Plun. Poulaines +4",
     "Pill. Poulaines +4",
-    "Pill. Bonnet +3",
-    "Pillager's Vest +3",
-    "Pill. Armlets +3",
-    "Pill. Culottes +3",
+    "Pill. Bonnet +4",
+    "Pillager's Vest +4",
+    "Pill. Armlets +4",
+    "Pill. Culottes +4",
 }
