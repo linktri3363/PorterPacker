@@ -20,7 +20,7 @@ return {
 	"Wyrm Mail +1",
 	"Wyrm Brais +1",
 	"Wyrm Greaves +1",
-	"Wyrm Fng.Gnt. +1",
+	"Wym. Fng. Gnt. +1",
 	"Pelt. Cuissots +3",
 	"Pelt. Plackart +3",
 	"Pelt. Schyn. +3",

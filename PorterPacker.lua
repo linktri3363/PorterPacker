@@ -1,6 +1,6 @@
 _addon.name = 'PorterPacker'
 _addon.author = 'Ivaar, Linktri'
-_addon.version = '0.0.1.06'
+_addon.version = '0.0.1.07'
 _addon.commands = {'porterpacker','packer','po'}
 
 -- LINKTRI MODIFICATION (2026-07-05): Merged continuous ("all") mode from Gimlic's fork (v0.0.1.02).
@@ -20,6 +20,25 @@ _addon.commands = {'porterpacker','packer','po'}
 -- LINKTRI MODIFICATION (2026-07-05, v0.0.1.06): added STOW_RETRIEVED setting (default false).
 -- Retrieved gear now stays in inventory instead of being stowed into Wardrobes; unpacking
 -- stops with a warning if inventory fills. Slip round-trips to Satchel/Sack/Case are unchanged.
+-- LINKTRI MODIFICATION (2026-10-11, v0.0.1.07): code-review fixes.
+--   * Re-entrancy guard: a second pack/unpack/repack (e.g. a double keybind press) can no
+--     longer start while a continuous run is in progress.
+--   * Trade watchdog: if the Porter Moogle never opens a menu after a trade, the state machine
+--     resets after TRADE_TIMEOUT seconds instead of staying "busy state: 1" until reload.
+--     Continuous-mode waits now time out on lack of progress and stop the run cleanly.
+--   * Zoning resets all state. New 'reset' command clears a stuck state by hand.
+--   * Every continuous-mode exit path now clears original_retrieve (a stale list used to make
+--     the next normal 'pack' silently skip items) and reports "Stopped early" instead of
+--     "Completed Movements" when the run was cut short.
+--   * Data file lookup now tries Name_JOB.lua before JOB.lua, matching the docs.
+--   * Continuous mode rescans inventory after every trade instead of trading from a stale
+--     snapshot, stops when a pass makes no progress, and lists anything left in storage.
+--   * Slip return logic consolidated into one helper (was copy-pasted six times).
+--   * retrieve_items no longer issues duplicate move requests for the same item.
+--   * Store auto-confirm waits for the chat line to close instead of pressing Enter into it.
+--   * 'export' writes each item once. New 'pack everything' stores every storable item from
+--     every reachable bag, no data file needed.
+--   * last_update made local; unused get_trade_items/dump_packet_bytes removed.
 
 -- DEBUG MODE: Set to true to enable debug logging, false to disable
 local DEBUG_MODE = false
@@ -50,6 +69,9 @@ local equippable_bags = {
     16,     -- Wardrobe 8
 }
 
+-- LINKTRI MODIFICATION (v0.0.1.07): bags a slip can be returned to after a continuous-mode trade.
+local slip_bags = {5, 6, 7} -- Satchel, Sack, Case
+
 -- LINKTRI MODIFICATION: where continuous mode stows retrieved gear, in order of preference.
 local bag_priority = {
     15,     -- Wardrobe 7
@@ -67,6 +89,12 @@ local bag_priority = {
 -- with a warning when inventory fills.
 local STOW_RETRIEVED = false
 
+-- LINKTRI MODIFICATION (v0.0.1.07): seconds to wait for the Porter Moogle's menu after a trade
+-- before giving up and resetting. Continuous mode also stops if a trade cycle makes no progress
+-- for TRADE_STALL_TIMEOUT seconds (longer, so you have time to confirm a prompt by hand).
+local TRADE_TIMEOUT = 5
+local TRADE_STALL_TIMEOUT = 15
+
 -- LINKTRI MODIFICATION: keybinds for continuous mode, registered on load / released on unload.
 -- Windower bind modifier symbols: ^ = Ctrl, ! = Alt, @ = Win, ~ = Shift, # = Apps key.
 -- Edit the left-hand keys to taste. Note these run the same code path as typing the command,
@@ -79,7 +107,6 @@ local KEYBINDS = {
 }
 
 local storing_items = false
-local continuous = false        -- LINKTRI MODIFICATION: continuous ("all") mode flag
 local retrieve = {}
 local original_retrieve = {}    -- LINKTRI MODIFICATION: master copy of the retrieve list for continuous
                                 -- mode. Gimlic's fork declared a shadowing local inside continuous_porter(),
@@ -87,6 +114,10 @@ local original_retrieve = {}    -- LINKTRI MODIFICATION: master copy of the retr
                                 -- find_porter_items() a no-op. Fixed: continuous_porter() now assigns this upvalue.
 local store = {}
 local state = 0
+local last_update = nil         -- LINKTRI MODIFICATION (v0.0.1.07): was an undeclared global
+local running = false           -- LINKTRI MODIFICATION (v0.0.1.07): a continuous run is in progress
+local abort_requested = false   -- LINKTRI MODIFICATION (v0.0.1.07): set by reset_state() to stop a running continuous pass
+local trade_token = nil         -- LINKTRI MODIFICATION (v0.0.1.07): identifies the trade the watchdog is guarding
 local zones = {
     [26]  = 621,    -- Tavnazian Safehold - (F-8)
     [50]  = 959,    -- Aht Urhgan Whitegate - (I-11)
@@ -104,9 +135,9 @@ local zones = {
     [250] = 309,    -- Kazham - (H-9)
     [252] = 246,    -- Norg - (G-7)
     [256] = 43,     -- Western Adoulin - (H-11)
-    [280] = 802,    -- Mog Garden	
-	[279] = 13,     -- Odyssey Lobby (alternate zone ID)
-	[298] = 13,     -- Odyssey Lobby (Walk of Echoes [P1])
+    [280] = 802,    -- Mog Garden
+    [279] = 13,     -- Odyssey Lobby (alternate zone ID)
+    [298] = 13,     -- Odyssey Lobby (Walk of Echoes [P1])
 }
 
 -- DEBUG: Track all discovered zone/menu combinations (only when debug mode is on)
@@ -115,6 +146,24 @@ local discovered_zones = {}
 local function space_available(bag_id)
     local bag = windower.ffxi.get_bag_info(bag_id)
     return bag.enabled and (bag.max - bag.count) or 0
+end
+
+-- LINKTRI MODIFICATION (v0.0.1.07): single place that clears the packet state machine and all
+-- queued work. If a continuous run is in progress it is told to stop at its next check.
+local function reset_state(reason)
+    if reason then
+        warning(reason)
+    end
+    state = 0
+    last_update = nil
+    trade_token = nil
+    retrieve = {}
+    original_retrieve = {}
+    store = {}
+    storing_items = false
+    if running then
+        abort_requested = true
+    end
 end
 
 -- LINKTRI MODIFICATION: replaced with Gimlic's version, then re-timed (2026-07-05).
@@ -162,31 +211,6 @@ local function put_away_items(items, bags)
     return count
 end
 
--- LINKTRI MODIFICATION: replaced with Gimlic's version. Signature changed: 'items' is now an
--- ARRAY of item objects (not a set keyed by id), and 'bags' is a list of source bag IDs.
--- Pulls matching items from the listed bags (skipping inventory itself) into inventory.
-local function retrieve_items(items, bags)
-    local inventory = space_available(0)
-    local count = 0
-    if #items ~= 0 then
-        for n = 1, #items do
-            for __, bag_id in pairs(bags) do
-                if windower.ffxi.get_bag_info(bag_id).enabled and bag_id ~= 0 then
-                    for index, item in ipairs(windower.ffxi.get_items(bag_id)) do
-                        if items[n].id == item.id and item.status == 0 then
-                            if inventory == 0 then return count end
-                            count = count + item.count
-                            inventory = inventory - 1
-                            windower.ffxi.get_item(bag_id, index, item.count)
-                        end
-                    end
-                end
-            end
-        end
-    end
-    return count
-end
-
 local function find_item(bags, item_id, count)
     for _, bag_name in pairs(bags) do
         for _, item in ipairs(windower.ffxi.get_items(bag_name)) do
@@ -198,17 +222,48 @@ local function find_item(bags, item_id, count)
     return nil
 end
 
-local function get_trade_items(items)
-    local t = {}
-    for _, item in ipairs(windower.ffxi.get_items(0)) do
-        if items[item.id] and item.count >= items[item.id] and item.status == 0 then
-            t[#t+1] = item
-            if #t > 7 then
-                break
+-- LINKTRI MODIFICATION: replaced with Gimlic's version. Signature changed: 'items' is now an
+-- ARRAY of item objects (not a set keyed by id), and 'bags' is a list of source bag IDs.
+-- Pulls matching items from the listed bags (skipping inventory itself) into inventory.
+-- LINKTRI MODIFICATION (v0.0.1.07): rewritten to pull at most one copy of each item id, and
+-- nothing that is already in inventory. Gimlic's version rescanned every bag once per list
+-- entry, so a duplicated id issued repeat move requests for the same slot and could count
+-- inventory as full early.
+local function retrieve_items(items, bags)
+    local inventory = space_available(0)
+    local count = 0
+    local wanted = {}
+    local remaining = 0
+    for n = 1, #items do
+        local id = items[n].id
+        if not wanted[id] and not find_item({0}, id, 1) then
+            wanted[id] = true
+            remaining = remaining + 1
+        end
+    end
+    if remaining == 0 then
+        return 0
+    end
+    for __, bag_id in ipairs(bags) do
+        if bag_id ~= 0 and windower.ffxi.get_bag_info(bag_id).enabled then
+            for index, item in ipairs(windower.ffxi.get_items(bag_id)) do
+                if wanted[item.id] and item.status == 0 then
+                    if inventory == 0 then
+                        return count
+                    end
+                    wanted[item.id] = nil
+                    remaining = remaining - 1
+                    count = count + item.count
+                    inventory = inventory - 1
+                    windower.ffxi.get_item(bag_id, index, item.count)
+                    if remaining == 0 then
+                        return count
+                    end
+                end
             end
         end
     end
-    return #t > 0 and t
+    return count
 end
 
 local function find_npc(name)
@@ -226,18 +281,9 @@ local function debug_log(message, ...)
     end
 end
 
--- Helper function to dump packet bytes for debugging
-local function dump_packet_bytes(data, start_pos, end_pos)
-    local bytes = {}
-    for i = start_pos, end_pos do
-        table.insert(bytes, string.format('%02X', data:byte(i)))
-    end
-    return table.concat(bytes, ' ')
-end
-
 local function trade_npc(npc, items)
     debug_log('DEBUG: Trading %d items to %s (ID: %d, Index: %d)', #items, npc.name or 'Unknown', npc.id, npc.index)
-    
+
     -- Enhanced debugging for Odyssey
     if DEBUG_MODE then
         local current_zone = windower.ffxi.get_info().zone
@@ -255,7 +301,7 @@ local function trade_npc(npc, items)
             end
         end
     end
-    
+
     local str = 'I2':pack(0, npc.id)
     for x = 1, 8 do
         str = str .. 'I':pack(items[x] and items[x].count or 0)
@@ -268,6 +314,16 @@ local function trade_npc(npc, items)
     windower.packets.inject_outgoing(0x36, str)
     state = 1
     debug_log('DEBUG: State changed to 1 (waiting for menu)')
+
+    -- LINKTRI MODIFICATION (v0.0.1.07): watchdog. If no Porter menu arrives (trade refused,
+    -- pulled out of range, lag spike) the state machine used to sit at 1 forever.
+    local token = {}
+    trade_token = token
+    coroutine.schedule(function()
+        if state == 1 and trade_token == token then
+            reset_state('The Porter Moogle did not respond to the trade - PorterPacker reset.')
+        end
+    end, TRADE_TIMEOUT)
 end
 
 -- LINKTRI MODIFICATION: now takes a LIST of bag IDs instead of a single bag, so continuous mode
@@ -298,7 +354,7 @@ end
 
 local function porter_trade()
     debug_log('DEBUG: porter_trade() called - State: %d, Storing: %s, Retrieve count: %d', state, tostring(storing_items), table.length(retrieve))
-    
+
     local npc = find_npc('Porter Moogle')
     if not npc then
         debug_log('DEBUG: Porter Moogle not found - resetting state')
@@ -307,9 +363,9 @@ local function porter_trade()
         storing_items = false
         return
     end
-    
+
     debug_log('DEBUG: Porter Moogle found at distance %.2f', math.sqrt(npc.distance))
-    
+
     if storing_items then
         debug_log('DEBUG: Processing storing items...')
         for slip_id, items in pairs(find_porter_items({0})) do -- LINKTRI MODIFICATION: table arg per new find_porter_items signature
@@ -322,7 +378,7 @@ local function porter_trade()
         storing_items = false
         debug_log('DEBUG: Storing complete')
     end
-    
+
     if table.length(retrieve) ~= 0 and space_available(0) ~= 0 then
         debug_log('DEBUG: Processing retrieve items...')
         for slip_id, items in pairs(slips.get_player_items()) do
@@ -342,7 +398,7 @@ local function porter_trade()
             end
         end
     end
-    
+
     retrieve = {}
     debug_log('DEBUG: porter_trade() completed - all operations finished')
 end
@@ -355,30 +411,41 @@ end
 
 local function porter_store(data)
     debug_log('DEBUG: porter_store called')
-    
+
     -- Check if byte 0x0D is 0 (confirmation needed)
     -- Based on debug output, this is the byte that's 0 when confirmation is needed
     if data:byte(0x0D+1) == 0 then
         debug_log('DEBUG: porter_store - confirmation dialog detected at 0x0D, will auto-confirm with Enter')
-        
+
         -- Automatically send Enter keypress to confirm the storage
         -- This preserves the game's original messages (showing correct item names and counts)
         coroutine.schedule(function()
             coroutine.sleep(0.2)  -- Increased delay to ensure dialog is fully ready
-            if state == 2 then  -- Still waiting for confirmation
+            -- LINKTRI MODIFICATION (v0.0.1.07): never press Enter into an open chat line (it
+            -- would send whatever was half-typed). Wait up to 5s for it to close; otherwise
+            -- leave the prompt for the player to confirm by hand.
+            local waited = 0
+            while state == 2 and windower.ffxi.get_info().chat_open and waited < 50 do
+                if waited == 0 then
+                    notice('Chat line is open - close it so PorterPacker can confirm, or confirm the Porter prompt yourself.')
+                end
+                coroutine.sleep(0.1)
+                waited = waited + 1
+            end
+            if state == 2 and not windower.ffxi.get_info().chat_open then  -- Still waiting for confirmation
                 debug_log('DEBUG: Sending Enter keypress to auto-confirm storage')
                 windower.send_command('setkey enter down')
                 coroutine.sleep(0.1)  -- Hold enter slightly longer
                 windower.send_command('setkey enter up')
             else
-                debug_log('DEBUG: State changed before Enter keypress, skipping')
+                debug_log('DEBUG: State changed or chat still open before Enter keypress, skipping')
             end
         end, 0)
-        
+
         -- Return the original unmodified data so the game shows correct messages
         return data
     end
-    
+
     debug_log('DEBUG: porter_store - no confirmation needed (byte 0x0D is not 0)')
     return false
 end
@@ -423,7 +490,7 @@ end
 
 local function check_event(data, update)
     local zone_id, menu_id = data:unpack('H2', 0x2A+1)
-    
+
     -- DEBUG: Log all zone/menu combinations we encounter (only in debug mode)
     if DEBUG_MODE then
         if not discovered_zones[zone_id] then
@@ -433,7 +500,7 @@ local function check_event(data, update)
             discovered_zones[zone_id][menu_id] = true
             local zone_name = res.zones[zone_id] and res.zones[zone_id].name or 'Unknown'
             notice('DEBUG: NEW Zone/Menu discovered - Zone %d (%s), Menu %d':format(zone_id, zone_name, menu_id))
-            
+
             -- Special handling for zone 298 (Odyssey)
             if zone_id == 298 then
                 notice('*** ODYSSEY ZONE 298 DETECTED! Menu ID is %d ***':format(menu_id))
@@ -441,9 +508,9 @@ local function check_event(data, update)
             end
         end
     end
-    
+
     debug_log('DEBUG: check_event - Zone: %d, Menu: %d, Has Handler: %s', zone_id, menu_id, tostring(events[zone_id] and events[zone_id][menu_id] ~= nil))
-    
+
     if events[zone_id] and events[zone_id][menu_id] then
         if update and update == last_update then
             debug_log('DEBUG: check_event - duplicate update packet ignored')
@@ -480,17 +547,17 @@ end
 
 windower.register_event('incoming chunk', function(id, data, modified, injected, blocked)
     local current_zone = windower.ffxi.get_info().zone
-    
+
     if id == 0x034 then
         -- DEBUG: Always log menu packets for analysis (only in debug mode)
         if DEBUG_MODE then
             local zone_id, menu_id = data:unpack('H2', 0x2A+1)
-            
+
             if current_zone == 298 or zone_id == 298 then
                 notice('DEBUG: Packet 0x034 in Odyssey - Zone: %d, Menu: %d, State: %d':format(zone_id, menu_id, state))
             end
         end
-        
+
         if state == 1 then
             debug_log('DEBUG: Processing menu packet in state 1')
             return check_event(data)
@@ -519,6 +586,15 @@ windower.register_event('outgoing chunk', function(id, data, modified, injected,
     end
 end)
 
+-- LINKTRI MODIFICATION (v0.0.1.07): zoning mid-trade used to leave the state machine stuck.
+windower.register_event('zone change', function()
+    if running or state ~= 0 then
+        reset_state('Zoned during a Porter Moogle operation - PorterPacker reset.')
+    end
+end)
+
+-- LINKTRI MODIFICATION (v0.0.1.07): tries the files in the order given; callers now pass
+-- Name_JOB before JOB so a character-specific file wins, as documented.
 local function load_file(...)
     local file_names = {...}
     for x = 1, 2 do local file_name = file_names[x]
@@ -548,218 +624,234 @@ local function load_file(...)
 end
 
 -- LINKTRI MODIFICATION: poll the packet state machine until the current trade cycle finishes
--- (state returns to 0) or 10 seconds elapse. Note the keypress confirm drives this naturally:
--- the real Enter press emits a genuine (non-injected) 0x05B, the outgoing handler sets state 3,
--- and the following 0x052 resets to 0 and chains porter_trade().
+-- (state returns to 0). Note the keypress confirm drives this naturally: the real Enter press
+-- emits a genuine (non-injected) 0x05B, the outgoing handler sets state 3, and the following
+-- 0x052 resets to 0 and chains porter_trade().
+-- LINKTRI MODIFICATION (v0.0.1.07): the old fixed 10s cap returned with the trade still in
+-- flight, and the caller then injected the next trade on top of it. Now the timer restarts
+-- whenever the state moves (so long chained trades are fine), and a cycle that stalls for
+-- TRADE_STALL_TIMEOUT seconds resets the state machine. Returns false if the run must stop.
 local function wait_for_trades()
-    local trade_wait_count = 0
-    while state ~= 0 and trade_wait_count < 100 do
+    local idle, total, last = 0, 0, state
+    while state ~= 0 and not abort_requested do
         coroutine.sleep(0.1)
-        trade_wait_count = trade_wait_count + 1
+        total = total + 1
+        if state ~= last then
+            last = state
+            idle = 0
+        else
+            idle = idle + 1
+        end
+        if idle >= TRADE_STALL_TIMEOUT * 10 or total >= 1200 then
+            reset_state('Porter Moogle trade stalled - stopping.')
+            return false
+        end
+    end
+    return not abort_requested
+end
+
+-- LINKTRI MODIFICATION (v0.0.1.07): names of items from original_retrieve that are still
+-- stored on slips, for the end-of-run report.
+local function still_stored()
+    local names = {}
+    for slip_id, items in pairs(slips.get_player_items()) do
+        if items.n ~= 0 then
+            for _, item_id in ipairs(items) do
+                if original_retrieve[item_id] and not find_item(slips.default_storages, item_id, 1) then
+                    names[#names+1] = res.items[item_id] and res.items[item_id].name or tostring(item_id)
+                end
+            end
+        end
+    end
+    return names
+end
+
+-- LINKTRI MODIFICATION (v0.0.1.07): the background porter_trade() chain clears 'retrieve' when
+-- inventory has no matching slips; re-queue anything from the master list that is still stored.
+local function requeue_retrieve()
+    for slip_id, items in pairs(slips.get_player_items()) do
+        if items.n ~= 0 then
+            for _, item_id in ipairs(items) do
+                if original_retrieve[item_id] and not find_item(slips.default_storages, item_id, 1) then
+                    retrieve[item_id] = true
+                end
+            end
+        end
     end
 end
 
 -- LINKTRI MODIFICATION: continuous ("all") mode, ported from Gimlic's fork v0.0.1.02.
--- Runs on the addon-command coroutine and blocks until finished (up to ~80 passes per phase).
+-- Runs on the addon-command coroutine and blocks until finished (up to 80 passes per phase).
 -- Phase 1 (store): pulls each slip's storable items from Wardrobes/Satchel/Sack/Case into
 -- inventory, trades them, and returns the slip to whichever bag it came from.
 -- Phase 2 (retrieve): pulls needed slips into inventory from wherever they live, trades them,
--- stows retrieved gear into Wardrobes via bag_priority, and returns the slips.
-local function continuous_porter()
-    local npc = find_npc('Porter Moogle')
-    if not npc then
-        retrieve = {}
-        store = {}
-        storing_items = false
-        return
-    end
-
+-- optionally stows retrieved gear into Wardrobes via bag_priority, and returns the slips.
+-- LINKTRI MODIFICATION (v0.0.1.07): restructured. Returns true when it ran to completion and
+-- false when it stopped early; the caller does all cleanup, so no exit path can leave a stale
+-- original_retrieve behind. Each pass rescans the bags instead of reusing a snapshot, each
+-- trade is followed by a fresh inventory scan, and a pass that makes no progress ends the phase.
+local function continuous_passes(return_slip)
     debug_log('DEBUG: continuous_porter() started - storing: %s, retrieve count: %d', tostring(storing_items), table.length(retrieve))
 
-    -- Record which bag each slip lives in so it can be put back afterwards
-    local Satchel_Slip_table = find_porter_items({5})
-    local Sack_Slip_table = find_porter_items({6})
-    local Case_Slip_table = find_porter_items({7})
+    -- Trade, wait for the whole chained cycle to finish, optionally stow. false = stop the run.
+    local function trade(items)
+        local npc = find_npc('Porter Moogle') -- re-check range before each trade
+        if not npc then
+            return false
+        end
+        trade_npc(npc, items)
+        if not wait_for_trades() then
+            return false
+        end
+        if STOW_RETRIEVED then -- LINKTRI MODIFICATION: optional wardrobe stow
+            put_away_items(original_retrieve, bag_priority)
+        end
+        return true
+    end
 
-    -- Save a copy of what needs to be returned up front; otherwise items get checked off when
+    -- Save a copy of what needs to be retrieved up front; otherwise items get checked off when
     -- the slip isn't in inventory yet.
     -- LINKTRI MODIFICATION: assigns the file-level upvalue (Gimlic's fork declared a shadowing
     -- local here, which broke the original_retrieve filter in find_porter_items()).
     original_retrieve = {}
-    if table.length(retrieve) ~= 0 then
-        for k, v in pairs(retrieve) do
-            original_retrieve[k] = v
-        end
+    for k, v in pairs(retrieve) do
+        original_retrieve[k] = v
     end
-
-    local All_Table = find_porter_items(equippable_bags)
 
     -- Phase 1: store items from all accessible bags
     if storing_items then
-        local action = true
-        local i = 1
-        while action do
-            action = false
-            for slip_id, items in pairs(All_Table) do
+        local last_storable = nil
+        for pass = 1, 80 do
+            local all_items = find_porter_items(equippable_bags)
+
+            -- count what is storable this pass; on the first pass, flag slips worth getting
+            local storable = 0
+            for slip_id, items in pairs(all_items) do
                 if #items > 1 and items[1].id == slip_id then
-                    -- pull this slip's items into inventory
+                    storable = storable + #items - 1
+                elseif pass == 1 and #items > 2 and items[1].id ~= slip_id then
+                    local slip_number = slips.get_slip_number_by_id(slip_id)
+                    if find_item(slips.default_storages, slip_id, 1) then
+                        windower.add_to_chat(200, ('Storage Slip %s is in a bag PorterPacker cannot reach here (Mog Safe/Storage/Locker) - skipped %d storable item(s).'):format(slip_number, #items))
+                    else
+                        windower.add_to_chat(200, ('Consider getting Storage Slip %s - %d item(s) in your bags could be stored on it.'):format(slip_number, #items))
+                    end
+                end
+            end
+
+            if storable == 0 then
+                break
+            end
+            if last_storable and storable >= last_storable then
+                warning(('%d item(s) could not be stored (inventory full, or the Porter Moogle refused them) - stopping.'):format(storable))
+                break
+            end
+            last_storable = storable
+
+            for slip_id, items in pairs(all_items) do
+                if #items > 1 and items[1].id == slip_id then
+                    if abort_requested then
+                        return false
+                    end
+                    -- pull this slip and its items into inventory
                     if space_available(0) ~= 0 then
                         -- LINKTRI MODIFICATION: only pay the settle delay when items actually moved
                         if retrieve_items(items, equippable_bags) > 0 then
                             coroutine.sleep(2)
                         end
                     end
-                    for slip_id2, items2 in pairs(find_porter_items({0})) do
-                        if #items2 > 1 and items2[1].id == slip_id2 then
-                            action = true
-                            -- re-check NPC range before each trade
-                            npc = find_npc('Porter Moogle')
-                            if not npc then
-                                retrieve = {}
-                                store = {}
-                                storing_items = false
-                                return
-                            end
-                            debug_log('DEBUG: continuous store - trading slip %d with %d items', slip_id2, #items2 - 1)
-                            trade_npc(npc, items2)
-                            wait_for_trades()
-                            if STOW_RETRIEVED then -- LINKTRI MODIFICATION: optional wardrobe stow
-                                put_away_items(original_retrieve, bag_priority)
-                            end
+                    -- trade from a fresh inventory scan, not the snapshot above
+                    local in_inventory = find_porter_items({0})[slip_id]
+                    if in_inventory and #in_inventory > 1 and in_inventory[1].id == slip_id then
+                        debug_log('DEBUG: continuous store - trading slip %d with %d items', slip_id, #in_inventory - 1)
+                        if not trade(in_inventory) then
+                            return false
                         end
                     end
-
-                    -- return the slip to the bag it came from
-                    for slip_id2, items2 in pairs(Satchel_Slip_table) do
-                        if items2[1].id == slip_id then
-                            if put_away_items({[slip_id] = true}, {5}) > 0 then -- LINKTRI MODIFICATION: only wait when the slip actually moved
-                                coroutine.sleep(1)
-                            end
-                        end
-                    end
-                    for slip_id2, items2 in pairs(Sack_Slip_table) do
-                        if items2[1].id == slip_id then
-                            if put_away_items({[slip_id] = true}, {6}) > 0 then -- LINKTRI MODIFICATION: only wait when the slip actually moved
-                                coroutine.sleep(1)
-                            end
-                        end
-                    end
-                    for slip_id2, items2 in pairs(Case_Slip_table) do
-                        if items2[1].id == slip_id then
-                            if put_away_items({[slip_id] = true}, {7}) > 0 then -- LINKTRI MODIFICATION: only wait when the slip actually moved
-                                coroutine.sleep(1)
-                            end
-                        end
-                    end
-                elseif #items > 2 and i == 1 then
-                    windower.add_to_chat(200, 'Consider getting Storage Slip ' .. slips.get_slip_number_by_id(slip_id) .. '. Found ' .. #items .. ' items that could be stored not in your PorterPacker file.')
+                    return_slip(slip_id)
                 end
             end
-            -- the background porter_trade() chain clears 'retrieve' when inventory has no matching
-            -- slips; re-queue anything from the master list that is still stored
-            for slip_id, items in pairs(slips.get_player_items()) do
-                if items.n ~= 0 then
-                    for _, item_id in ipairs(items) do
-                        if original_retrieve[item_id] then
-                            retrieve[item_id] = true
-                        end
-                    end
-                end
-            end
-            i = i + 1
-            if i > 80 then action = false end -- safety valve
+            requeue_retrieve()
         end
     end
     store = {}
     storing_items = false
 
     -- Phase 2: retrieve items, pulling slips from wherever they live
-    if table.length(retrieve) ~= 0 and space_available(0) ~= 0 then
-        local i = 1 -- LINKTRI MODIFICATION: was an accidental global in Gimlic's fork
-        while table.length(retrieve) > 0 and i < 80 do
-            for slip_id, items in pairs(slips.get_player_items()) do
-                local slip_used = false -- LINKTRI MODIFICATION: was file-level state in Gimlic's fork; only used here
-                if items.n ~= 0 then
-                    for _, item_id in ipairs(items) do
-                        if retrieve[item_id] and not find_item(slips.default_storages, item_id, 1) then
-                            local slip_item = find_item(slips.default_storages, slip_id, 1)
-                            if slip_item then -- LINKTRI MODIFICATION: nil guard; Gimlic passed a possibly-empty table through
-                                if retrieve_items({[1] = slip_item}, equippable_bags) > 0 then
-                                    coroutine.sleep(1)
-                                end
-                            end
-                            slip_item = find_item({slips.default_storages[1]}, slip_id, 1)
-                            if slip_item then
-                                -- re-check NPC range before each trade
-                                npc = find_npc('Porter Moogle')
-                                if not npc then
-                                    retrieve = {}
-                                    store = {}
-                                    storing_items = false
-                                    return
-                                end
-                                debug_log('DEBUG: continuous retrieve - trading slip %d', slip_id)
-                                trade_npc(npc, {slip_item})
-                                wait_for_trades()
-                                if STOW_RETRIEVED then -- LINKTRI MODIFICATION: optional wardrobe stow
-                                    put_away_items(original_retrieve, bag_priority)
-                                end
-                                slip_used = true
-                            end
-                        end
-                    end
-                end
-
-                if slip_used then
-                    -- return the slip to the bag it came from
-                    for slip_id2, items2 in pairs(Satchel_Slip_table) do
-                        if items2[1].id == slip_id then
-                            if put_away_items({[slip_id] = true}, {5}) > 0 then -- LINKTRI MODIFICATION: only wait when the slip actually moved
-                                coroutine.sleep(1)
-                            end
-                        end
-                    end
-                    for slip_id2, items2 in pairs(Sack_Slip_table) do
-                        if items2[1].id == slip_id then
-                            if put_away_items({[slip_id] = true}, {6}) > 0 then -- LINKTRI MODIFICATION: only wait when the slip actually moved
-                                coroutine.sleep(1)
-                            end
-                        end
-                    end
-                    for slip_id2, items2 in pairs(Case_Slip_table) do
-                        if items2[1].id == slip_id and find_item({slips.default_storages[1]}, slip_id, 1) then
-                            if put_away_items({[slip_id] = true}, {7}) > 0 then -- LINKTRI MODIFICATION: only wait when the slip actually moved
-                                coroutine.sleep(1)
-                            end
-                        end
-                    end
-                end
+    if table.length(original_retrieve) ~= 0 then
+        local last_remaining = nil
+        for pass = 1, 80 do
+            -- rebuild the queue from what is actually still stored, so 'remaining' is exact
+            retrieve = {}
+            requeue_retrieve()
+            local remaining = table.length(retrieve)
+            if remaining == 0 then
+                break
             end
-
-            -- trade_npc trades everything as if it's in inventory; re-queue anything from the
-            -- master list that is still stored so it isn't lost mid-run
-            for slip_id, items in pairs(slips.get_player_items()) do
-                if items.n ~= 0 then
-                    for _, item_id in ipairs(items) do
-                        if original_retrieve[item_id] and not find_item(slips.default_storages, item_id, 1) and not retrieve[item_id] then
-                            retrieve[item_id] = true
-                        end
-                    end
-                end
+            if last_remaining and remaining >= last_remaining then
+                break -- no progress last pass; the report below lists what is left
             end
-            -- LINKTRI MODIFICATION: with stowing off, a full inventory means retrieval can't
-            -- continue - stop cleanly instead of spinning through the remaining passes
+            last_remaining = remaining
+
+            -- make room, or stop cleanly if inventory is full
             if STOW_RETRIEVED and space_available(0) < 3 then
                 coroutine.sleep(1)
                 put_away_items(original_retrieve, bag_priority)
                 coroutine.sleep(1)
-            elseif not STOW_RETRIEVED and space_available(0) == 0 and table.length(retrieve) > 0 then
-                windower.add_to_chat(200, 'Inventory full - stopping with ' .. table.length(retrieve) .. ' item(s) still stored.')
+            end
+            if space_available(0) == 0 then
+                warning('Inventory full - stopping retrieval.')
                 break
             end
-            i = i + 1
+
+            local traded = false
+            local inventory_full = false
+            for slip_id, items in pairs(slips.get_player_items()) do
+                if abort_requested then
+                    return false
+                end
+                if items.n ~= 0 then
+                    local needed = false
+                    for _, item_id in ipairs(items) do
+                        if retrieve[item_id] and not find_item(slips.default_storages, item_id, 1) then
+                            needed = true
+                            break
+                        end
+                    end
+                    if needed then
+                        if not find_item({0}, slip_id, 1) then
+                            -- the slip takes a slot too; with one slot left nothing could come back
+                            if space_available(0) < 2 then
+                                inventory_full = true
+                                break
+                            end
+                            local slip_item = find_item(slips.default_storages, slip_id, 1)
+                            if slip_item and retrieve_items({slip_item}, equippable_bags) > 0 then
+                                coroutine.sleep(1)
+                            end
+                        end
+                        local slip_item = find_item({0}, slip_id, 1)
+                        if slip_item then
+                            debug_log('DEBUG: continuous retrieve - trading slip %d', slip_id)
+                            if not trade({slip_item}) then
+                                return false
+                            end
+                            traded = true
+                            return_slip(slip_id)
+                        end
+                    end
+                end
+            end
+            if inventory_full then
+                warning('Inventory full - stopping retrieval.')
+                break
+            end
+            if not traded then
+                break -- nothing reachable to trade; the report below lists what is left
+            end
         end
     end
+
     -- LINKTRI MODIFICATION: final stow only when stowing is enabled and there was a retrieve list
     if STOW_RETRIEVED and table.length(original_retrieve) ~= 0 then
         coroutine.sleep(1)
@@ -767,15 +859,59 @@ local function continuous_porter()
             coroutine.sleep(1)
         end
     end
-    retrieve = {}
-    original_retrieve = {} -- LINKTRI MODIFICATION: clear so normal (non-continuous) runs aren't filtered by a stale list
+
+    local left = still_stored()
+    if #left > 0 then
+        warning(('%d item(s) still stored: %s'):format(#left, table.concat(left, ', ')))
+        notice('Free inventory space, or move their slips out of the Mog Safe/Storage/Locker, and run it again.')
+    end
+
     debug_log('DEBUG: continuous_porter() completed')
+    return not abort_requested -- a reset/zone during the last steps still counts as stopped early
+end
+
+-- LINKTRI MODIFICATION (v0.0.1.07): entry point for continuous mode. Records where each slip
+-- lives, runs the passes, and - if the run stopped early - still puts any slip it pulled into
+-- inventory back in its bag (an aborted run used to leave them sitting in inventory).
+local function continuous_porter()
+    if not find_npc('Porter Moogle') then
+        return false
+    end
+
+    -- Record which bag each slip lives in so it can be put back afterwards
+    local slip_home = {}
+    for __, bag_id in ipairs(slip_bags) do
+        for _, item in ipairs(windower.ffxi.get_items(bag_id)) do
+            if slips.items[item.id] then
+                slip_home[item.id] = bag_id
+            end
+        end
+    end
+
+    -- Return a slip from inventory to the bag it started in (no-op if it started in inventory)
+    local function return_slip(slip_id)
+        local bag_id = slip_home[slip_id]
+        if bag_id and find_item({0}, slip_id, 1) then
+            if put_away_items({[slip_id] = true}, {bag_id}) > 0 then -- only wait when the slip actually moved
+                coroutine.sleep(1)
+            end
+        end
+    end
+
+    local finished = continuous_passes(return_slip)
+    if not finished then
+        for slip_id in pairs(slip_home) do
+            return_slip(slip_id)
+        end
+    end
+    return finished
 end
 
 local handled_commands = {
     store = S{'pack','store','p','repack','swap','r'},          -- LINKTRI MODIFICATION: added p/r short aliases from Gimlic's fork
     retrieve = S{'unpack','retrieve','u','repack','swap','r'},  -- LINKTRI MODIFICATION: added u/r short aliases from Gimlic's fork
-    all = S{'all','a','continuous'}                             -- LINKTRI MODIFICATION: continuous mode triggers
+    all = S{'all','a','continuous'},                            -- LINKTRI MODIFICATION: continuous mode triggers
+    everything = S{'everything','ev'},                          -- LINKTRI MODIFICATION (v0.0.1.07): pack with no file filter
 }
 
 windower.register_event('addon command', function(...)
@@ -786,12 +922,13 @@ windower.register_event('addon command', function(...)
     -- (commands[2] itself is left untouched where it names a file)
     local arg2 = commands[2] and commands[2]:lower()
     local arg3 = commands[3] and commands[3]:lower()
-    
+
     if commands[1] == 'debug' then
         if DEBUG_MODE then
             notice('=== DEBUG INFO ===')
             notice('Current Zone: %d (%s)':format(windower.ffxi.get_info().zone, res.zones[windower.ffxi.get_info().zone].name))
             notice('Current State: %d':format(state))
+            notice('Continuous Run Active: %s':format(tostring(running)))
             notice('Storing Items: %s':format(tostring(storing_items)))
             notice('Retrieve Items: %d':format(table.length(retrieve)))
             notice('Store Items: %d':format(table.length(store)))
@@ -817,8 +954,13 @@ windower.register_event('addon command', function(...)
         DEBUG_MODE = false
         notice('Debug mode DISABLED')
         return
+    elseif commands[1] == 'reset' then
+        -- LINKTRI MODIFICATION (v0.0.1.07): manual escape hatch for a stuck state
+        reset_state()
+        notice(running and 'Reset - the current run will stop at its next step.' or 'Reset - PorterPacker is idle.')
+        return
     end
-    
+
     if not player then
     elseif not commands[1] or commands[1] == 'help' then
         notice('Commands: command | alias [optional]')
@@ -826,8 +968,10 @@ windower.register_event('addon command', function(...)
         notice(' debug                                   - shows debug information and discovered zones (only when debug mode is on)')
         notice(' debugon                                 - enables debug mode')
         notice(' debugoff                                - disables debug mode')
+        notice(' reset                                   - clears a stuck "busy" state and stops a running pass')
         notice(' export | exp [file] [all|a]             - exports storable items to a .lua file; "all" scans every accessible bag')
         notice(' pack | store | p [file] [all|a]         - stores current inventory items, if file is specified only items in the file will be stored')
+        notice(' pack everything | ev                    - stores every storable item from inventory, Wardrobes and Satchel/Sack/Case (no file)')
         notice(' unpack | retrieve | u [file] [all|a]    - retrieves matching items in the file from a porter moogle. file defaults to Name_JOB.lua or JOB.lua')
         notice(' repack | swap | r [file] [all|a]        - stores inventory items not in the file and retrieves matching items. file defaults to Name_JOB.lua or JOB.lua')
         notice(' "all" pulls slips from Satchel/Sack/Case and stores from Wardrobes; retrieved items stay in inventory (STOW_RETRIEVED)')
@@ -839,9 +983,11 @@ windower.register_event('addon command', function(...)
         if (arg2 and handled_commands.all:contains(arg2)) or (arg3 and handled_commands.all:contains(arg3)) then
             bags = {0,1,2,4,5,6,7,8,9,10,11,12,13,14,15,16}
         end
+        local exported = {} -- LINKTRI MODIFICATION (v0.0.1.07): one line per item, even if it is in several bags
         for __, bag_id in pairs(bags) do
             for _, item in ipairs(windower.ffxi.get_items(bag_id)) do
-                if slips.get_slip_id_by_item_id(item.id) and res.items[item.id] then
+                if not exported[item.id] and slips.get_slip_id_by_item_id(item.id) and res.items[item.id] then
+                    exported[item.id] = true
                     str = str .. '    "%s",\n':format(res.items[item.id].name)
                 end
             end
@@ -860,33 +1006,59 @@ windower.register_event('addon command', function(...)
         export:write(str)
         export:close()
         notice('exporting storable inventory to %s.lua':format(commands[2]))
+    elseif running then
+        -- LINKTRI MODIFICATION (v0.0.1.07): between trades 'state' is 0, so the state check
+        -- below did not stop a second keybind press from starting a parallel run.
+        notice('busy: a continuous run is already in progress (//po reset to stop it)')
     elseif state ~= 0 or player.status ~= 0 then
         notice('busy state: %d, status: %d':format(state, player.status))
     elseif (handled_commands.retrieve+handled_commands.store):contains(commands[1]) then
-        -- LINKTRI MODIFICATION: detect continuous ("all") mode from arg 2 or 3
-        continuous = (arg2 and handled_commands.all:contains(arg2)) or (arg3 and handled_commands.all:contains(arg3)) or false
-        if commands[2] or handled_commands.retrieve:contains(commands[1]) then
-            if arg2 and handled_commands.all:contains(arg2) then
-                commands[2] = player.main_job -- LINKTRI MODIFICATION: 'all' in the file slot means use the default file
-            else
-                commands[2] = commands[2] or player.main_job
-            end
-            local item_ids = load_file(commands[2], '%s_%s':format(player.name, commands[2]))
-            if not item_ids then
+        local continuous
+        if arg2 and handled_commands.everything:contains(arg2) then
+            -- LINKTRI MODIFICATION (v0.0.1.07): 'pack everything' - continuous store, no file filter
+            if handled_commands.retrieve:contains(commands[1]) then
+                notice('"everything" only works with pack / store / p.')
                 return
-            elseif handled_commands.retrieve:contains(commands[1]) then
-                retrieve = item_ids
-                debug_log('DEBUG: Set retrieve items count: %d', table.length(retrieve))
-            else
-                store = item_ids
-                debug_log('DEBUG: Set store items count: %d', table.length(store))
+            end
+            continuous = true
+            store = {}
+            retrieve = {}
+        else
+            -- LINKTRI MODIFICATION: detect continuous ("all") mode from arg 2 or 3
+            continuous = (arg2 and handled_commands.all:contains(arg2)) or (arg3 and handled_commands.all:contains(arg3)) or false
+            if commands[2] or handled_commands.retrieve:contains(commands[1]) then
+                if arg2 and handled_commands.all:contains(arg2) then
+                    commands[2] = player.main_job -- LINKTRI MODIFICATION: 'all' in the file slot means use the default file
+                else
+                    commands[2] = commands[2] or player.main_job
+                end
+                -- LINKTRI MODIFICATION (v0.0.1.07): Name_JOB.lua first, then JOB.lua (was reversed)
+                local item_ids = load_file('%s_%s':format(player.name, commands[2]), commands[2])
+                if not item_ids then
+                    return
+                elseif handled_commands.retrieve:contains(commands[1]) then
+                    retrieve = item_ids
+                    debug_log('DEBUG: Set retrieve items count: %d', table.length(retrieve))
+                else
+                    store = item_ids
+                    debug_log('DEBUG: Set store items count: %d', table.length(store))
+                end
             end
         end
         storing_items = handled_commands.store:contains(commands[1])
         debug_log('DEBUG: Starting porter_trade - storing_items: %s, continuous: %s', tostring(storing_items), tostring(continuous))
         if continuous then
-            continuous_porter()
-            windower.add_to_chat(200, 'Completed Movements')
+            -- LINKTRI MODIFICATION (v0.0.1.07): guard + single cleanup point for every exit path
+            running = true
+            abort_requested = false
+            local finished = continuous_porter()
+            running = false
+            abort_requested = false
+            retrieve = {}
+            original_retrieve = {}
+            store = {}
+            storing_items = false
+            windower.add_to_chat(200, finished and 'Completed Movements' or 'Stopped early - see the messages above.')
         else
             porter_trade()
         end

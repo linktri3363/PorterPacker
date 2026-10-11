@@ -24,6 +24,6 @@ return {
     "Aya. Cosciales +2",
     "Aya. Gambieras +2",
     "Aya. Manopolas +2",
-    "Aya. Zuchetto +2",
+    "Aya. Zucchetto +2",
     "Ayanmo Ring",
 }

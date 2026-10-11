@@ -25,4 +25,9 @@ return {
     "Arbatel Pants +3",
     "Arbatel Loafers +3",
 	"Khonsu",
+	"Acad. Mortar. +1",
+    "Acad. Gown +1",
+    "Acad. Bracers +1",
+    "Acad. Pants +1",
+    "Acad. Loafers +1",
 }
