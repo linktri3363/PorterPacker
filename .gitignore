@@ -1,12 +1,12 @@
 # PorterPacker .gitignore
 
-# User-specific gear files
-data/
+# Job data files in data/ are tracked on purpose (they double as a backup).
+# Exports from //po export are scratch files, so keep those out.
 *.lua.bak
 *.lua.old
 
-# Personal character exports
-*_export_*.lua
+# Personal character exports (//po export writes data/export_Name_JOB.lua)
+data/export_*.lua
 
 # Temporary files
 *.tmp

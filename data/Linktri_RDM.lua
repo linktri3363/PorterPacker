@@ -6,7 +6,7 @@ return {
     "Mummu Gamash. +2",
     "Lethargy Chappel +3",
     "Lethargy Sayon +3",
-    "Lethargy Ganth. +3",
+    "Leth. Ganth. +3",
     "Lethargy Fuseau +3",
     "Lethargy Houseaux +3",
     "Atrophy Chapeau +3",
