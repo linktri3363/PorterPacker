@@ -19,7 +19,7 @@ return {
 	"Vitiation Gloves +1",
 	"Vitiation Tights +1",
 	"Vitiation Boots +1",
-	"Jhakri Cornoal +2",
+	"Jhakri Coronal +2",
 	"Jhakri Cuffs +2",
 	"Jhakri Pigaches +2",
 	"Jhakri Robe +2",
