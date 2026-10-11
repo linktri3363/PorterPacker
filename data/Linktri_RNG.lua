@@ -19,4 +19,5 @@ return {
 	"Orion Bracers +1",
 	"Orion Jerkin +1",
 	"Orion Socks +1",
+	"Ullr",
 }

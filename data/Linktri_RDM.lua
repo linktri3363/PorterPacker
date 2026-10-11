@@ -6,7 +6,7 @@ return {
     "Mummu Gamash. +2",
     "Lethargy Chappel +3",
     "Lethargy Sayon +3",
-    "Lethargy Ganth. +3",
+    "Leth. Ganth. +3",
     "Lethargy Fuseau +3",
     "Lethargy Houseaux +3",
     "Atrophy Chapeau +3",
@@ -19,4 +19,9 @@ return {
 	"Vitiation Gloves +1",
 	"Vitiation Tights +1",
 	"Vitiation Boots +1",
+	"Jhakri Cornoal +2",
+	"Jhakri Cuffs +2",
+	"Jhakri Pigaches +2",
+	"Jhakri Robe +2",
+	"Jhakri Slops +2",
 }

@@ -19,4 +19,9 @@ return {
     "Horos Casaque +4",
     "Horos Bangles +4",
     "Horos Tights +4",
+	"Tauret",
+	"Karambit",
+	"Oshasha's Treatise",
+	"Cornelia's Belt",
+	"Loquac. Earring",
 }

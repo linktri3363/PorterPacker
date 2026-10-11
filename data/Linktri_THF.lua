@@ -19,4 +19,6 @@ return {
     "Pillager's Vest +4",
     "Pill. Armlets +4",
     "Pill. Culottes +4",
+	"Twinned Blade",
+	"Ark Scythe",
 }

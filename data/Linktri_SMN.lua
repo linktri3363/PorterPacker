@@ -6,6 +6,7 @@ return {
     "Inyan. Crackows +2",
     "Inyanga Ring",
     "Xoanon",
+	"Khonsu",
     "Beckoner's Horn +3",
     "Beck. Doublet +3",
     "Beck. Bracers +3",
@@ -16,4 +17,9 @@ return {
     "Con. Bracers +1",
     "Con. Spats +1",
     "Con. Pigaches +1",
+	"Glyphic Horn +3",
+	"Glyphic Doublet +3",
+	"Glyphic Bracers +3",
+	"Glyphic Spats +3",
+	"Glyphic Pigaches +3",
 }
