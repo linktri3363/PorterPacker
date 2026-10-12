@@ -1,6 +1,6 @@
 _addon.name = 'PorterPacker'
 _addon.author = 'Ivaar, Linktri'
-_addon.version = '0.0.1.07'
+_addon.version = '0.0.1.08'
 _addon.commands = {'porterpacker','packer','po'}
 
 -- LINKTRI MODIFICATION (2026-07-05): Merged continuous ("all") mode from Gimlic's fork (v0.0.1.02).
@@ -39,6 +39,9 @@ _addon.commands = {'porterpacker','packer','po'}
 --   * 'export' writes each item once. New 'pack everything' stores every storable item from
 --     every reachable bag, no data file needed.
 --   * last_update made local; unused get_trade_items/dump_packet_bytes removed.
+-- LINKTRI MODIFICATION (2026-10-11, v0.0.1.08): after an unpack/repack finishes, calls DressUp's
+-- '//du lockstyle' so the new job's lockstyle set (numbered by job ID) is applied and shows
+-- through DressUp's blink prevention. See LOCKSTYLE_AFTER_UNPACK.
 
 -- DEBUG MODE: Set to true to enable debug logging, false to disable
 local DEBUG_MODE = false
@@ -89,6 +92,11 @@ local bag_priority = {
 -- with a warning when inventory fills.
 local STOW_RETRIEVED = false
 
+-- LINKTRI MODIFICATION (v0.0.1.08): after an unpack/repack finishes, run DressUp's
+-- '//du lockstyle', which applies /lockstyleset <main job ID> (WAR=1 ... RUN=22) and lets the
+-- new look through DressUp's blink prevention. Needs the modified DressUp; set false to disable.
+local LOCKSTYLE_AFTER_UNPACK = true
+
 -- LINKTRI MODIFICATION (v0.0.1.07): seconds to wait for the Porter Moogle's menu after a trade
 -- before giving up and resetting. Continuous mode also stops if a trade cycle makes no progress
 -- for TRADE_STALL_TIMEOUT seconds (longer, so you have time to confirm a prompt by hand).
@@ -118,6 +126,7 @@ local last_update = nil         -- LINKTRI MODIFICATION (v0.0.1.07): was an unde
 local running = false           -- LINKTRI MODIFICATION (v0.0.1.07): a continuous run is in progress
 local abort_requested = false   -- LINKTRI MODIFICATION (v0.0.1.07): set by reset_state() to stop a running continuous pass
 local trade_token = nil         -- LINKTRI MODIFICATION (v0.0.1.07): identifies the trade the watchdog is guarding
+local lockstyle_pending = false -- LINKTRI MODIFICATION (v0.0.1.08): an unpack/repack is running; set lockstyle when it ends
 local zones = {
     [26]  = 621,    -- Tavnazian Safehold - (F-8)
     [50]  = 959,    -- Aht Urhgan Whitegate - (I-11)
@@ -161,9 +170,20 @@ local function reset_state(reason)
     original_retrieve = {}
     store = {}
     storing_items = false
+    lockstyle_pending = false
     if running then
         abort_requested = true
     end
+end
+
+-- LINKTRI MODIFICATION (v0.0.1.08): hand off to DressUp once an unpack/repack has finished.
+-- The short wait lets the last retrieved items settle into the bags before the game checks
+-- the lockstyle set against what you're carrying.
+local function finish_lockstyle()
+    if lockstyle_pending and LOCKSTYLE_AFTER_UNPACK then
+        windower.send_command('wait 1; du lockstyle')
+    end
+    lockstyle_pending = false
 end
 
 -- LINKTRI MODIFICATION: replaced with Gimlic's version, then re-timed (2026-07-05).
@@ -401,6 +421,11 @@ local function porter_trade()
 
     retrieve = {}
     debug_log('DEBUG: porter_trade() completed - all operations finished')
+    -- LINKTRI MODIFICATION (v0.0.1.08): single (non-"all") unpack is done. During an "all" run
+    -- this is reached between trades, so the continuous path handles it instead.
+    if not running then
+        finish_lockstyle()
+    end
 end
 
 local function inject_option(npc_id, npc_index, zone_id, menu_id, option_index, bool)
@@ -975,6 +1000,7 @@ windower.register_event('addon command', function(...)
         notice(' unpack | retrieve | u [file] [all|a]    - retrieves matching items in the file from a porter moogle. file defaults to Name_JOB.lua or JOB.lua')
         notice(' repack | swap | r [file] [all|a]        - stores inventory items not in the file and retrieves matching items. file defaults to Name_JOB.lua or JOB.lua')
         notice(' "all" pulls slips from Satchel/Sack/Case and stores from Wardrobes; retrieved items stay in inventory (STOW_RETRIEVED)')
+        notice(' unpack/repack finish by running //du lockstyle (job lockstyle set via DressUp) - LOCKSTYLE_AFTER_UNPACK')
         notice(' Keybinds: Ctrl+Alt+P = pack all | Ctrl+Alt+U = unpack all | Ctrl+Alt+R = repack all (edit KEYBINDS table to change)')
     elseif commands[1] == 'export' or commands[1] == 'exp' then
         local str = 'return {\n'
@@ -1046,6 +1072,8 @@ windower.register_event('addon command', function(...)
             end
         end
         storing_items = handled_commands.store:contains(commands[1])
+        -- LINKTRI MODIFICATION (v0.0.1.08): unpack/repack should end with the job's lockstyle
+        lockstyle_pending = handled_commands.retrieve:contains(commands[1])
         debug_log('DEBUG: Starting porter_trade - storing_items: %s, continuous: %s', tostring(storing_items), tostring(continuous))
         if continuous then
             -- LINKTRI MODIFICATION (v0.0.1.07): guard + single cleanup point for every exit path
@@ -1059,6 +1087,13 @@ windower.register_event('addon command', function(...)
             store = {}
             storing_items = false
             windower.add_to_chat(200, finished and 'Completed Movements' or 'Stopped early - see the messages above.')
+            -- LINKTRI MODIFICATION (v0.0.1.08): only on a clean finish; a run cut short may be
+            -- missing pieces of the set.
+            if finished then
+                finish_lockstyle()
+            else
+                lockstyle_pending = false
+            end
         else
             porter_trade()
         end
