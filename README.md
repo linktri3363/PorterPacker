@@ -5,7 +5,7 @@ using Storage Slips. This build merges Gimlic's continuous-mode fork (v0.0.1.02)
 Ivaar's base (v0.0.0.8) with Linktri's debug instrumentation, keypress-based store
 confirmation, keybinds, and timing/behavior fixes.
 
-**Current version:** 0.0.1.07
+**Current version:** 0.0.1.09
 
 ## Lineage
 
@@ -46,6 +46,10 @@ Appending `all` (or `a` / `continuous`) to pack/unpack/repack enables continuous
 
 - Storage Slips are pulled from **Satchel, Sack, and Case** as needed, traded, and
   returned to the bag they came from — slips do not need to start in inventory.
+- Every run ends by sending every slip in inventory home: back to the bag it started
+  in, or to `SLIP_HOME_BAG` (Satchel) if it was already in inventory. Any slip that
+  can't be put back (bag full) is named in chat.
+- With a job file, only items in that file are stored, on every pass.
 - Storable items are pulled from **Wardrobes 1–8** through inventory automatically.
 - Runs slip-by-slip until nothing matching remains. A pass that makes no progress ends
   the run (with an 80-pass safety valve behind that).
@@ -58,6 +62,11 @@ Appending `all` (or `a` / `continuous`) to pack/unpack/repack enables continuous
   refused with a "busy" message.
 - If a trade gets no response, you zone, or you use `//po reset`, the run stops,
   reports "Stopped early", and still puts any slips it pulled back where they came from.
+- Unpack and repack finish by running DressUp's `//du lockstyle` to apply the job's
+  lockstyle set (clean finishes only for `all` runs).
+
+Plain `pack` / `unpack` / `repack` (without `all`) don't move slips at all: the slips
+must already be in inventory, and they stay there afterwards.
 
 **Not scanned:** Mog Safe, Storage, and Locker. The game client cannot move items out
 of those bags outside your Mog House, so slips or gear living there are unreachable at
@@ -94,6 +103,11 @@ At the top of `PorterPacker.lua`:
 - **`TRADE_STALL_TIMEOUT`** (default `15`) — continuous mode stops if a trade cycle makes
   no progress for this long (long enough to confirm a prompt by hand).
 - **`bag_priority`** — Wardrobe stow order used when `STOW_RETRIEVED` is `true`.
+- **`SLIP_HOME_BAG`** (default `5`, Satchel) — where continuous mode puts slips that
+  were already in inventory when the run started. `6` = Sack, `7` = Case, `nil` leaves
+  them in inventory. Slips that started in Satchel/Sack/Case always go back to that bag.
+- **`LOCKSTYLE_AFTER_UNPACK`** (default `true`) — run `//du lockstyle` after an unpack or
+  repack. Needs the modified DressUp.
 
 ## Data files
 
@@ -124,10 +138,22 @@ starting file with `//po export` (inventory only) or `//po export all` (all bags
 
 Version 0.0.1.06 is preserved on the
 [`v0.0.1.06-backup`](https://github.com/linktri3363/PorterPacker/tree/v0.0.1.06-backup)
-branch. Download `PorterPacker.lua` from there to roll back.
+branch. Download `PorterPacker.lua` from there to roll back. Later versions can be
+restored from the commit history.
 
 ## Changelog
 
+- **0.0.1.09** — Slips reliably go back to Satchel/Sack/Case. Returns used to check
+  inventory once, right after a trade, while the slip could still be locked by the
+  Porter's menu or in transit, and then silently do nothing; a slip that landed late
+  during unpack was neither traded nor returned; and nothing cleaned up after a normal
+  finish. Now each return waits for the slip to settle and confirms the move, every run
+  ends with a sweep of all slips in inventory (`SLIP_HOME_BAG` for slips that started in
+  inventory), and any slip that can't be put back is named. Also fixed: `pack all` with a
+  job file lost the file filter after its first trade and could store gear that isn't in
+  the file.
+- **0.0.1.08** — After an unpack/repack finishes, runs DressUp's `//du lockstyle` to apply
+  the job's lockstyle set (`LOCKSTYLE_AFTER_UNPACK`).
 - **0.0.1.07** — Code-review fixes. Re-entrancy guard (a double keybind press could start
   two parallel runs). Trade watchdog plus zone-change reset (a trade with no menu
   response left the addon stuck at "busy state: 1" until reload); new `reset` command.

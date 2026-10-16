@@ -1,6 +1,6 @@
 _addon.name = 'PorterPacker'
 _addon.author = 'Ivaar, Linktri'
-_addon.version = '0.0.1.08'
+_addon.version = '0.0.1.09'
 _addon.commands = {'porterpacker','packer','po'}
 
 -- LINKTRI MODIFICATION (2026-07-05): Merged continuous ("all") mode from Gimlic's fork (v0.0.1.02).
@@ -42,6 +42,12 @@ _addon.commands = {'porterpacker','packer','po'}
 -- LINKTRI MODIFICATION (2026-10-11, v0.0.1.08): after an unpack/repack finishes, calls DressUp's
 -- '//du lockstyle' so the new job's lockstyle set (numbered by job ID) is applied and shows
 -- through DressUp's blink prevention. See LOCKSTYLE_AFTER_UNPACK.
+-- LINKTRI MODIFICATION (2026-10-15, v0.0.1.09): slips reliably go back to Satchel/Sack/Case.
+-- Returns wait for the slip to settle after a trade and confirm the move, every continuous run
+-- ends with a sweep of all slips in inventory, and slips that started in inventory go to
+-- SLIP_HOME_BAG (Satchel). Any slip that can't be put back is named in chat.
+-- Also fixed: 'pack all' with a job file lost the file filter after its first trade and could
+-- go on to store gear that isn't in the file.
 
 -- DEBUG MODE: Set to true to enable debug logging, false to disable
 local DEBUG_MODE = false
@@ -74,6 +80,13 @@ local equippable_bags = {
 
 -- LINKTRI MODIFICATION (v0.0.1.07): bags a slip can be returned to after a continuous-mode trade.
 local slip_bags = {5, 6, 7} -- Satchel, Sack, Case
+local bag_names = {[5] = 'Satchel', [6] = 'Sack', [7] = 'Case'}
+
+-- LINKTRI MODIFICATION (v0.0.1.09): where continuous mode puts slips that were already in
+-- inventory when the run started (e.g. left there by an earlier run). Slips that started in
+-- Satchel/Sack/Case always go back to the bag they came from. 5 = Satchel, 6 = Sack,
+-- 7 = Case; nil leaves slips that started in inventory where they are.
+local SLIP_HOME_BAG = 5
 
 -- LINKTRI MODIFICATION: where continuous mode stows retrieved gear, in order of preference.
 local bag_priority = {
@@ -715,6 +728,48 @@ end
 -- false when it stopped early; the caller does all cleanup, so no exit path can leave a stale
 -- original_retrieve behind. Each pass rescans the bags instead of reusing a snapshot, each
 -- trade is followed by a fresh inventory scan, and a pass that makes no progress ends the phase.
+-- LINKTRI MODIFICATION (v0.0.1.09): wait up to 'timeout' seconds for an item to be sitting in
+-- inventory (status 0, i.e. not locked by a trade or still in transit). Returns the item or nil.
+local function wait_for_inventory_item(item_id, timeout)
+    local waited = 0
+    while true do
+        local item = find_item({0}, item_id, 1)
+        if item or waited >= timeout then
+            return item
+        end
+        coroutine.sleep(0.25)
+        waited = waited + 0.25
+    end
+end
+
+-- LINKTRI MODIFICATION (v0.0.1.09): move a slip from inventory to bag_id and confirm it left.
+-- Returns true once the slip is out of inventory (or was never there), false if it is still in
+-- inventory after two attempts (bag full, disabled, or the move was ignored).
+local function move_slip(slip_id, bag_id, settle)
+    if not wait_for_inventory_item(slip_id, settle) then
+        return true -- not in inventory: nothing to do
+    end
+    for attempt = 1, 2 do
+        if space_available(bag_id) == 0 then
+            return false
+        end
+        local item = find_item({0}, slip_id, 1)
+        if not item then
+            return true
+        end
+        windower.ffxi.put_item(bag_id, item.slot, item.count)
+        local waited = 0
+        while find_item({0}, slip_id, 1) and waited < 2 do
+            coroutine.sleep(0.25)
+            waited = waited + 0.25
+        end
+        if not find_item({0}, slip_id, 1) then
+            return true
+        end
+    end
+    return false
+end
+
 local function continuous_passes(return_slip)
     debug_log('DEBUG: continuous_porter() started - storing: %s, retrieve count: %d', tostring(storing_items), table.length(retrieve))
 
@@ -744,10 +799,19 @@ local function continuous_passes(return_slip)
     end
 
     -- Phase 1: store items from all accessible bags
+    -- LINKTRI MODIFICATION (v0.0.1.09): keep our own copy of the job-file filter. The
+    -- background porter_trade() chain sets store = {} when it runs out of work after a trade,
+    -- which made every later pass treat ALL storable items as fair game - 'pack all' could
+    -- store gear that isn't in the job file. Restored before every scan.
+    local store_filter = store
+    local function scan(bags)
+        store = store_filter
+        return find_porter_items(bags)
+    end
     if storing_items then
         local last_storable = nil
         for pass = 1, 80 do
-            local all_items = find_porter_items(equippable_bags)
+            local all_items = scan(equippable_bags)
 
             -- count what is storable this pass; on the first pass, flag slips worth getting
             local storable = 0
@@ -785,8 +849,10 @@ local function continuous_passes(return_slip)
                             coroutine.sleep(2)
                         end
                     end
+                    -- LINKTRI MODIFICATION (v0.0.1.09): make sure the slip itself has landed
+                    wait_for_inventory_item(slip_id, 3)
                     -- trade from a fresh inventory scan, not the snapshot above
-                    local in_inventory = find_porter_items({0})[slip_id]
+                    local in_inventory = scan({0})[slip_id]
                     if in_inventory and #in_inventory > 1 and in_inventory[1].id == slip_id then
                         debug_log('DEBUG: continuous store - trading slip %d with %d items', slip_id, #in_inventory - 1)
                         if not trade(in_inventory) then
@@ -851,11 +917,13 @@ local function continuous_passes(return_slip)
                                 break
                             end
                             local slip_item = find_item(slips.default_storages, slip_id, 1)
-                            if slip_item and retrieve_items({slip_item}, equippable_bags) > 0 then
-                                coroutine.sleep(1)
+                            if slip_item then
+                                retrieve_items({slip_item}, equippable_bags)
                             end
                         end
-                        local slip_item = find_item({0}, slip_id, 1)
+                        -- LINKTRI MODIFICATION (v0.0.1.09): wait for the slip to land (was a fixed
+                        -- 1s sleep; a slip arriving later was neither traded nor returned)
+                        local slip_item = wait_for_inventory_item(slip_id, 3)
                         if slip_item then
                             debug_log('DEBUG: continuous retrieve - trading slip %d', slip_id)
                             if not trade({slip_item}) then
@@ -898,6 +966,12 @@ end
 -- LINKTRI MODIFICATION (v0.0.1.07): entry point for continuous mode. Records where each slip
 -- lives, runs the passes, and - if the run stopped early - still puts any slip it pulled into
 -- inventory back in its bag (an aborted run used to leave them sitting in inventory).
+-- LINKTRI MODIFICATION (v0.0.1.09): slips were not always making it back. return_slip checked
+-- inventory once, right after a trade, while the slip could still be locked by the Porter's
+-- menu or in transit, and then silently did nothing; and nothing swept up slips after a run
+-- that finished normally, or slips that started in inventory. Now each return waits for the
+-- slip to settle and confirms the move, and every run ends with a sweep that sends every slip
+-- in inventory home (its starting bag, else SLIP_HOME_BAG) and names any that couldn't go.
 local function continuous_porter()
     if not find_npc('Porter Moogle') then
         return false
@@ -913,21 +987,34 @@ local function continuous_porter()
         end
     end
 
-    -- Return a slip from inventory to the bag it started in (no-op if it started in inventory)
+    local function home_of(slip_id)
+        return slip_home[slip_id] or SLIP_HOME_BAG
+    end
+
+    -- Return a slip from inventory to its home bag. Waits up to 3s for it to settle after a
+    -- trade; failures are left for the final sweep, which reports them.
     local function return_slip(slip_id)
-        local bag_id = slip_home[slip_id]
-        if bag_id and find_item({0}, slip_id, 1) then
-            if put_away_items({[slip_id] = true}, {bag_id}) > 0 then -- only wait when the slip actually moved
-                coroutine.sleep(1)
-            end
+        local bag_id = home_of(slip_id)
+        if bag_id then
+            move_slip(slip_id, bag_id, 3)
         end
     end
 
     local finished = continuous_passes(return_slip)
-    if not finished then
-        for slip_id in pairs(slip_home) do
-            return_slip(slip_id)
+
+    -- Final sweep (every run, finished or not): anything still in inventory goes home.
+    local stuck = {}
+    for _, item in ipairs(windower.ffxi.get_items(0)) do
+        if slips.items[item.id] then
+            local bag_id = home_of(item.id)
+            if bag_id and not move_slip(item.id, bag_id, 3) then
+                stuck[#stuck+1] = 'Storage Slip %s (%s)':format(slips.get_slip_number_by_id(item.id), bag_names[bag_id] or bag_id)
+            end
         end
+    end
+    if #stuck > 0 then
+        warning(('Could not put back %s - is the bag full? Move %s yourself.'):format(
+            table.concat(stuck, ', '), #stuck == 1 and 'it' or 'them'))
     end
     return finished
 end
