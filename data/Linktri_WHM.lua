@@ -26,4 +26,5 @@ return {
     "Aya. Manopolas +2",
     "Aya. Zucchetto +2",
     "Ayanmo Ring",
+	"Sibyl Scarf",
 }

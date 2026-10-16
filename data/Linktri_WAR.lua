@@ -10,7 +10,7 @@ return {
     "Boii Cuisses +3",
     "Boii Calligae +3",
     "Agoge Mask +4",
-    "Agoge Lorica +3",
+    "Agoge Lorica +4",
     "Agoge Mufflers +4",
     "Agoge Cuisses +4",
     "Agoge Calligae +4",
@@ -27,4 +27,5 @@ return {
     "Flam. Gambieras +2",
     "Flamma Ring",
 	"Shining One",
+	"Naegling",
 }
