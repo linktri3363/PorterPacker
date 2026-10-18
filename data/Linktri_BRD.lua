@@ -18,7 +18,7 @@ return {
 	"Brioso Justau. +2", 
 	"Brioso Cuffs +4",
     "Brios. Cann. +4",
-	"Brioso Slippers +2",
+	"Brioso Slippers +3",
 	"Bihu Roundlet +4",
 	"Bihu Just. +4", 
 	"Bihu Cuffs +3",
