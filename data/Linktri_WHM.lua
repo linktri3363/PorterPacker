@@ -27,4 +27,6 @@ return {
     "Aya. Zucchetto +2",
     "Ayanmo Ring",
 	"Sibyl Scarf",
+	"Twilight Cloak",
+	"Twilight Cape",
 }
