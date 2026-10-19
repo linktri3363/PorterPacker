@@ -21,4 +21,13 @@ return {
     "Pill. Culottes +4",
 	"Twinned Blade",
 	"Ark Scythe",
+-- LINKTRI 2026-10-19: stored THF gear (all slip-storable: Slip 28 Ullr/Naegling/Tauret, 23 Qutrub Knife/Mummu Ring, 03 Per. Lucky Egg, 02 Brutal/Loquac. Earring)
+	"Ullr",
+	"Naegling",
+	"Tauret",
+	"Qutrub Knife",
+	"Mummu Ring",
+	"Per. Lucky Egg",
+	"Brutal Earring",
+	"Loquac. Earring",
 }
