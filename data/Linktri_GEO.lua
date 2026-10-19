@@ -24,4 +24,8 @@ return {
 	"Azimuth Gloves +3",
 	"Azimuth Tights +3",
 	"Azimuth Gaiters +3",
+-- LINKTRI 2026-10-19: stored GEO gear (Storage Slip 03): Impact cloak, weather/day cure cape, magic burst neck
+	"Twilight Cloak",
+	"Twilight Cape",
+	"Sibyl Scarf",
 }
