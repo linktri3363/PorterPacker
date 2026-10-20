@@ -33,4 +33,5 @@ return {
     "Twilight Cloak",
     "Twilight Cape",
     "Maxentius",
+    "Sibyl Scarf",
 }
