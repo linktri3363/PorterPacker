@@ -22,4 +22,5 @@ return {
 	"Glyphic Bracers +3",
 	"Glyphic Spats +3",
 	"Glyphic Pigaches +3",
+    "Twilight Cloak",
 }
