@@ -1,5 +1,5 @@
 return {
-    "Rev. Coronet +3",
+    "Rev. Coronet +4",
     "Rev. Surcoat +4",
     "Rev. Gauntlets +4",
     "Rev. Breeches +4",
@@ -19,4 +19,10 @@ return {
 	"Cab. Gauntlets +4",
 	"Cab. Breeches +4",
 	"Cab. Leggings +4",
+    "Plat. Mog. Belt",
+    "Elite Royal Collar",
+    "Rep. Plat. Medal",
+    "Naegling",
+    "Twilight Helm",
+    "Twilight Mail",
 }
