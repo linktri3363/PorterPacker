@@ -9,7 +9,7 @@ return {
     "Mallquis Saio +2",
     "Mallquis Cuffs +2",
     "Mallquis Clogs +2",
-	"Acad. Mortar. +3",
+	"Acad. Mortar. +4",
 	"Acad. Gown +4",
     "Acad. Bracers +4",
     "Acad. Pants +4",
@@ -30,4 +30,7 @@ return {
     "Acad. Bracers +1",
     "Acad. Pants +1",
     "Acad. Loafers +1",
+    "Twilight Cloak",
+    "Twilight Cape",
+    "Maxentius",
 }
