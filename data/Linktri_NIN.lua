@@ -25,4 +25,7 @@ return {
     "Mochi. Hatsuburi +3",
     "Mochizuki Tekko +3",
     "Mochi. Kyahan +3",
+    "Loquac. Earring",
+    "Naegling",
+    "Tauret",
 }
