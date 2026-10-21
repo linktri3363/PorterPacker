@@ -19,4 +19,8 @@ return {
 	"Hizamaru Kote +2",
 	"Hiza. Hizayoroi +2",
 	"Hiza. Sune-Ate +2",
+	"Rep. Plat. Medal",
+	"Cornelia's Belt",
+	"Loquac. Earring",
+	"Naji's Loop",
 }
