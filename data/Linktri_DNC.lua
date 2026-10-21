@@ -24,4 +24,5 @@ return {
 	"Oshasha's Treatise",
 	"Cornelia's Belt",
 	"Loquac. Earring",
+	"Twinned Blade",
 }
