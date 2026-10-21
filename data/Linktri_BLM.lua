@@ -27,4 +27,5 @@ return {
     "Wicce Gloves +3",
     "Wicce Chausses +3",
     "Wicce Sabots +3",
+    "Twilight Cloak",
 }
