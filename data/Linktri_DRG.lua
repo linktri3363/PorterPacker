@@ -26,4 +26,7 @@ return {
 	"Pelt. Schyn. +3",
 	"Peltast's Mezail +3",
 	"Pel. Vambraces +3",
+	"Naegling",
+	"Twilight Helm",
+	"Twilight Mail",
 }
