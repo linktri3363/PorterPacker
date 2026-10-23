@@ -21,4 +21,9 @@ return {
     "Twilight Helm",
     "Twilight Mail",
     "Wh. Rarab Cap +1",
+    "Hachimonji",
+    "Flam. Zucchetto +2",
+    "Flam. Manopolas +2",
+    "Flamma Dirs +2",
+    "Flam. Gambieras +2",
 }
