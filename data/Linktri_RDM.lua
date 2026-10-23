@@ -24,4 +24,12 @@ return {
 	"Jhakri Pigaches +2",
 	"Jhakri Robe +2",
 	"Jhakri Slops +2",
+	"Naegling",
+	"Tauret",
+	"Maxentius",
+	"Twilight Cape",
+	"Twilight Cloak",
+	"Wh. Rarab Cap +1",
+	"Ayanmo Corazza +2",
+	"Aya. Manopolas +2",
 }
