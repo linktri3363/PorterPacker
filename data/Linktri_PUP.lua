@@ -5,7 +5,7 @@ return {
     "Pitre Churidars +2",
     "Pitre Babouches +2",
     "Foire Taj +2",
-    "Foire Tobe +2",
+    "Foire Tobe +4",
     "Foire Dastanas +2",
     "Foire Churidars +2",
     "Foire Babouches +2",
