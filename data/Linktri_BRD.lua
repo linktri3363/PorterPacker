@@ -24,4 +24,7 @@ return {
 	"Bihu Cuffs +4",
 	"Bihu Cann. +4",
 	"Bihu Slippers +4",
+	"Naegling",
+	"Rep. Plat. Medal",
+	"Naji's Loop",
 }
