@@ -15,4 +15,10 @@ return {
     "Kasuga Kote +3",
     "Kasuga Haidate +3",
     "Kas. Sune-Ate +3",
+    "Shining One",
+    "Ullr",
+    "Loquac. Earring",
+    "Twilight Helm",
+    "Twilight Mail",
+    "Wh. Rarab Cap +1",
 }
