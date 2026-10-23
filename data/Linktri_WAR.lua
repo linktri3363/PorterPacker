@@ -28,4 +28,6 @@ return {
     "Flamma Ring",
 	"Shining One",
 	"Naegling",
+	"Twilight Helm",
+	"Twilight Mail",
 }
