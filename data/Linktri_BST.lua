@@ -14,4 +14,6 @@ return {
     "Tali'ah Gages +2",
     "Tali'ah Sera. +2",
     "Tali'ah Crackows +2",
+    "Twilight Helm",
+    "Twilight Mail",
 }
