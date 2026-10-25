@@ -26,9 +26,9 @@ return {
     "Flam. Manopolas +2",
     "Flamma Dirs +2",
     "Flam. Gambieras +2",
-	"Sakonji Kabuto",
-	"Sakonji Domaru",
-	"Sakonji Kote",
+	"Sakonji Kabuto +2",
+	"Sakonji Domaru +2",
+	"Sakonji Kote +1",  -- being crafted; picked up once it exists
 	"Sakonji Haidate",
-	"Saotome Sune-Ate",
+	"Sakonji Sune-Ate",
 }
