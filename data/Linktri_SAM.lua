@@ -34,6 +34,6 @@ return {
 	"Sakonji Kabuto +3",
 	"Sakonji Domaru +3",
 	"Sakonji Kote +3",
-	"Sakonji Haidate +1",
+	"Sakonji Haidate +2",
 	"Sak. Sune-Ate +1",
 }
