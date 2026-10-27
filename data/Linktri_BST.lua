@@ -16,4 +16,9 @@ return {
     "Tali'ah Crackows +2",
     "Twilight Helm",
     "Twilight Mail",
+	"Ankusa Helm +1",
+	"Ankusa Jackcoat +1",
+	"Ankusa Gloves +1",
+	"Ankusa Trousers +1",
+	"Ankusa Gaiters",
 }
