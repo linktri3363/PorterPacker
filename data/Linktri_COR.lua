@@ -19,6 +19,8 @@ return {
     "Lanun Gants +1",
     "Lanun Trews +1",
     "Lanun Bottes +1",
+    "Naegling",
+    "Tauret",
 	"Lanun Tricorne +1",
 	"Lanun Frac +1",
 	"Lanun Gants +1",
