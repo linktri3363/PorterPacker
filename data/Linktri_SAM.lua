@@ -1,5 +1,5 @@
 return {
-    "Wakido Kabuto +2",
+    "Wakido Kabuto +3",
     "Wakido Domaru +2",
     "Wakido Kote +2",
     "Wakido Haidate +2",
