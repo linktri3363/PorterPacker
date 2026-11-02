@@ -1,7 +1,7 @@
 return {
     "Luhlaza Charuqs +3",
-    "Luh. Keffiyeh +1",
-    "Luhlaza Jubbah +1",
+    "Luh. Keffiyeh +3",
+    "Luhlaza Jubbah +3",
 	"Luh. Bazubands +3",
 	"Luhlaza Shalwar +3",
 	"Hashishin Kavuk +3",
