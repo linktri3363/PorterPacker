@@ -1,9 +1,9 @@
 return {
-    "Luhlaza Charuqs +1",
+    "Luhlaza Charuqs +3",
     "Luh. Keffiyeh +1",
     "Luhlaza Jubbah +1",
-	"Luh. Bazubands +1",
-	"Luhlaza Shalwar +1",
+	"Luh. Bazubands +3",
+	"Luhlaza Shalwar +3",
 	"Hashishin Kavuk +3",
     "Hashishin Mintan +3",
     "Hashi. Bazu. +3",
