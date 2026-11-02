@@ -16,7 +16,6 @@ return {
     "Assim. Charuqs +2",
 	"Jhakri Ring",
     "Aya. Zucchetto +2",
-    "Ayanmo Corazza +2",
     "Aya. Manopolas +2",
     "Aya. Cosciales +2",
     "Aya. Gambieras +2",
