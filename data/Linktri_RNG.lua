@@ -25,4 +25,5 @@ return {
 	"Arc. Braccae +1",
 	"Arcadian Socks +1",
 	"Ullr",
+	"Naegling",
 }
