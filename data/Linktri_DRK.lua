@@ -22,9 +22,9 @@ return {
 	"Igno. Gauntlets +1",
 	"Igno. Sollerets +1",
 	"Khonsu",
-	"Fall. Burgeonet +1",
+	"Fall. Burgeonet +2",
 	"Fall. Cuirass +1",
-	"Fall. Fin. Gaunt. +1",
+	"Fall. Fin. Gaunt. +3",
 	"Fall. Flanchard +1",
-	"Fall. Sollerets +1",
+	"Fall. Sollerets +3",
 }
