@@ -27,4 +27,5 @@ return {
 	"Fall. Fin. Gaunt. +3",
 	"Fall. Flanchard +3",
 	"Fall. Sollerets +3",
+	"Naegling",
 }
