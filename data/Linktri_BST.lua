@@ -18,7 +18,7 @@ return {
     "Twilight Mail",
 	"Ankusa Helm +1",
 	"An. Jackcoat +1",
-	"Ankusa Gloves +1",
-	"Ankusa Trousers +1",
-	"Ankusa Gaiters +1",
+	"Ankusa Gloves +3",
+	"Ankusa Trousers +3",
+	"Ankusa Gaiters +3",
 }
