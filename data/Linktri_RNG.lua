@@ -21,9 +21,9 @@ return {
 	"Orion Socks +1",
 	"Arcadian Beret +1",
 	"Arc. Jerkin +1",
-	"Arc. Bracers +1",
-	"Arc. Braccae +1",
-	"Arcadian Socks +1",
+	"Arc. Bracers +2",
+	"Arc. Braccae +2",
+	"Arcadian Socks +3",
 	"Ullr",
 	"Naegling",
 }
