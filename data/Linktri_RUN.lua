@@ -25,4 +25,5 @@ return {
     "Aya. Manopolas +2",
     "Aya. Cosciales +2",
     "Aya. Gambieras +2",
+    "Naegling",
 }
